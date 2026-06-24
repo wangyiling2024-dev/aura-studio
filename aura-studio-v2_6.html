@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Aura Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Inter',sans-serif;background:transparent;color:#f0eaf8;-webkit-font-smoothing:antialiased;overflow:hidden;position:relative}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(200,160,240,0.25);border-radius:99px}
+input,textarea,select{font-family:'Inter',sans-serif}
+@keyframes shimmer{0%{background-position:200% center}100%{background-position:-200% center}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+#sky-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+#root{position:relative;z-index:1}
+@keyframes auroraShift{0%,100%{opacity:0.5;transform:scaleX(1) translateY(0)}50%{opacity:0.85;transform:scaleX(1.08) translateY(-20px)}}
+</style>
+</head>
+<body>
+<canvas id="sky-canvas"></canvas>
+<div id="root"></div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('sky-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, stars = [], t = 0;
+
+  function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    initStars();
+  }
+
+  function initStars(){
+    stars = [];
+    const count = Math.floor((W * H) / 3800);
+    for(let i=0;i<count;i++){
+      stars.push({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        r: Math.random()*1.4+0.2,
+        a: Math.random()*0.7+0.15,
+        sp: 0.003+Math.random()*0.008,
+        ph: Math.random()*Math.PI*2,
+        color: ['#fff','#ffe8d6','#d6e8ff','#e8d6ff'][Math.floor(Math.random()*4)]
+      });
+    }
+  }
+
+  function drawStars(){
+    stars.forEach(s=>{
+      const alpha = s.a * (0.5 + 0.5*Math.sin(t*s.sp+s.ph));
+      ctx.beginPath();
+      ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fillStyle = s.color.replace(')',`,${alpha})`).replace('rgb','rgba').replace('#','');
+      // simpler approach:
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = s.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  // shooting star
+  let meteors = [];
+  function spawnMeteor(){
+    meteors.push({
+      x: Math.random()*W*0.8,
+      y: Math.random()*H*0.4,
+      vx: 8+Math.random()*10,
+      vy: 4+Math.random()*6,
+      len: 120+Math.random()*160,
+      life: 1,
+      decay: 0.018+Math.random()*0.015
+    });
+  }
+
+  function drawAurora(){
+    const bands = [
+      {y:0.18, hue:260, amp:0.07, sp:0.0003, w:0.22, op:0.55},
+      {y:0.30, hue:200, amp:0.06, sp:0.0004, w:0.18, op:0.45},
+      {y:0.12, hue:300, amp:0.05, sp:0.0005, w:0.14, op:0.40},
+      {y:0.40, hue:180, amp:0.04, sp:0.0002, w:0.12, op:0.35},
+    ];
+    bands.forEach((b,bi)=>{
+      const pts = 80;
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      for(let xi=0;xi<=pts;xi++){
+        const px=(xi/pts)*W;
+        const wave = Math.sin(xi*0.15+t*b.sp*1000+bi*1.8)*H*b.amp
+                   + Math.sin(xi*0.27+t*b.sp*700+bi*0.9)*H*b.amp*0.4;
+        const cy = H*b.y + wave;
+        const th = H*b.w;
+        const g = ctx.createLinearGradient(px,cy-th/2,px,cy+th/2);
+        g.addColorStop(0,`hsla(${b.hue},80%,65%,0)`);
+        g.addColorStop(0.35,`hsla(${b.hue},85%,68%,${b.op*0.6})`);
+        g.addColorStop(0.5,`hsla(${b.hue+25},90%,72%,${b.op})`);
+        g.addColorStop(0.65,`hsla(${b.hue},85%,68%,${b.op*0.6})`);
+        g.addColorStop(1,`hsla(${b.hue},80%,65%,0)`);
+        ctx.fillStyle=g;
+        ctx.fillRect(px,cy-th/2,W/pts+1,th);
+      }
+      ctx.restore();
+    });
+  }
+
+  function drawMeteors(){
+    meteors = meteors.filter(m=>m.life>0);
+    meteors.forEach(m=>{
+      const ang = Math.atan2(m.vy,m.vx);
+      const tx = m.x - Math.cos(ang)*m.len*m.life;
+      const ty = m.y - Math.sin(ang)*m.len*m.life;
+      const g = ctx.createLinearGradient(tx,ty,m.x,m.y);
+      g.addColorStop(0,'rgba(255,255,255,0)');
+      g.addColorStop(1,`rgba(255,255,255,${m.life*0.9})`);
+      ctx.beginPath();
+      ctx.moveTo(tx,ty);
+      ctx.lineTo(m.x,m.y);
+      ctx.strokeStyle=g;
+      ctx.lineWidth=2*m.life;
+      ctx.stroke();
+      // head glow
+      const rg=ctx.createRadialGradient(m.x,m.y,0,m.x,m.y,10*m.life);
+      rg.addColorStop(0,`rgba(220,200,255,${m.life*0.9})`);
+      rg.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.beginPath();ctx.arc(m.x,m.y,10*m.life,0,Math.PI*2);
+      ctx.fillStyle=rg;ctx.fill();
+      m.x+=m.vx; m.y+=m.vy; m.life-=m.decay;
+    });
+  }
+
+  let frame=0;
+  function draw(){
+    // sky gradient — deep twilight blue-purple, NOT black
+    const sky=ctx.createLinearGradient(0,0,0,H);
+    sky.addColorStop(0,'#0d0a2e');
+    sky.addColorStop(0.3,'#0f1340');
+    sky.addColorStop(0.6,'#1a0a3a');
+    sky.addColorStop(1,'#0a1528');
+    ctx.fillStyle=sky;
+    ctx.fillRect(0,0,W,H);
+
+    // subtle nebula clouds
+    const nc1=ctx.createRadialGradient(W*0.15,H*0.2,0,W*0.15,H*0.2,W*0.4);
+    nc1.addColorStop(0,'rgba(80,40,140,0.18)');
+    nc1.addColorStop(1,'rgba(80,40,140,0)');
+    ctx.fillStyle=nc1;ctx.fillRect(0,0,W,H);
+
+    const nc2=ctx.createRadialGradient(W*0.8,H*0.15,0,W*0.8,H*0.15,W*0.35);
+    nc2.addColorStop(0,'rgba(20,60,120,0.18)');
+    nc2.addColorStop(1,'rgba(20,60,120,0)');
+    ctx.fillStyle=nc2;ctx.fillRect(0,0,W,H);
+
+    drawStars();
+    drawAurora();
+    if(frame%90===0&&Math.random()<0.6) spawnMeteor();
+    drawMeteors();
+
+    t+=0.016; frame++;
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize',resize);
+  resize();
+  draw();
+})();
+</script>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+const RAINBOW = "linear-gradient(135deg,#ff6b6b,#ffa94d,#ffe066,#69db7c,#4dabf7,#cc5de8)";
+const RAINBOW_90 = "linear-gradient(90deg,#ff6b6b,#ffa94d,#ffe066,#69db7c,#4dabf7,#cc5de8)";
+const RB = ["#ff6b6b","#ffa94d","#ffe066","#69db7c","#4dabf7","#cc5de8","#f783ac"];
+
+const NAV = [
+  {id:"home",      label:"Home",                icon:"✦", color:"#ff6b6b"},
+  {id:"brand",     label:"Brand Compass",        icon:"◆", color:"#ffa94d"},
+  {id:"content",   label:"Content Studio",       icon:"◈", color:"#ffe066"},
+  {id:"trends",    label:"Trend Intel",          icon:"◉", color:"#69db7c"},
+  {id:"calendar",  label:"Content Calendar",     icon:"◻", color:"#4dabf7"},
+  {id:"performance",label:"Performance Analyzer",icon:"◐", color:"#cc5de8"},
+];
+
+async function callClaude(prompt, system = "") {
+  // Simulate API delay for realism
+  await new Promise(r => setTimeout(r, 1400 + Math.random() * 800));
+
+  const p = prompt.toLowerCase();
+
+  // ── BRAND COMPASS ──
+  if (p.includes("brand compass") || p.includes("positioning statement")) {
+    return `1. POSITIONING STATEMENT
+Yvonne's Besties is the neighbourhood nail studio that makes every client feel like the main character — delivering salon-quality results in a space that feels like catching up with a friend.
+
+2. TARGET AUDIENCE PROFILE
+Who they are: Women aged 20–35, living or working in Vancouver, with disposable income they invest in self-care rituals. They follow beauty creators on Instagram and Rednote, save aesthetic content, and treat a nail appointment as a mood reset, not just a beauty errand.
+What they care about: Feeling seen and well-treated. They value experience as much as outcome — the vibe of the studio matters as much as the finish of the gel.
+Pain points: Generic studios that feel transactional, inconsistent quality, and not seeing themselves reflected in a brand's aesthetic.
+
+3. BRAND PERSONALITY
+✦ Warm — Every interaction feels personal. Clients aren't numbers; they're remembered.
+✦ Playful — The brand doesn't take itself too seriously. There's joy in the work.
+✦ Elevated — The quality is uncompromising, even when the energy is casual.
+
+4. TONE OF VOICE
+Conversational but considered. The brand speaks the way a trusted friend with great taste would — never stiff, never try-hard. Captions feel like texts, not press releases. Avoid over-polished corporate language; lean into warmth and specificity.
+
+5. KEY DIFFERENTIATOR
+Where most studios compete on price or speed, Yvonne's Besties competes on relationship. The product is excellent nails; the real offer is feeling genuinely cared for.
+
+6. CONTENT PILLARS
+◆ The Craft — Before/afters, process videos, technique breakdowns. Demonstrates expertise without bragging.
+◆ The Vibe — Studio moments, client reactions, behind-the-scenes. Sells the experience, not just the service.
+◆ The Community — Client spotlights, local love, shared beauty rituals. Builds belonging and word-of-mouth.`;
+  }
+
+  // ── CONTENT IDEAS ──
+  if (p.includes("content idea") || p.includes("high-performing content")) {
+    return `1. FORMAT: Reel (15–30s)
+HOOK: "POV: you finally found a nail studio that gets you"
+CONCEPT: A smooth transition Reel showing the studio environment, the service in progress, and the final result — set to a trending audio. No voiceover needed; the visuals carry it.
+WHY IT WORKS: "POV" framing invites the viewer into an aspirational scenario. Beauty audiences respond to transformation + atmosphere combined.
+
+2. FORMAT: Carousel (5–7 slides)
+HOOK: "Your nail personality, decoded 🌷"
+CONCEPT: Each slide represents a nail aesthetic (minimalist, maximalist, seasonal, neutral) with a short description of the "type" of person who gravitates to it. Last slide: "Which one are you? Book your next set below."
+WHY IT WORKS: Personality quizzes and "which one are you" content consistently drive saves and shares — both high-value signals for the algorithm.
+
+3. FORMAT: Static (single image)
+HOOK: The visual is the hook — an overhead flat-lay of a finished set on a textured background
+CONCEPT: A beautifully art-directed photo of the nail result. No text overlay, minimal caption. Let the work speak.
+WHY IT WORKS: Highly aesthetic static posts perform well for saves and profile visits. They function as portfolio content that attracts new clients mid-scroll.
+
+4. FORMAT: Reel (tutorial-style)
+HOOK: "3 things your nail tech wishes you knew before your appointment"
+CONCEPT: Quick, friendly education — what to do with your cuticles, how to make your set last longer, what to bring to your appointment. Branded end card.
+WHY IT WORKS: Educational content builds trust and positions the brand as an expert, not just a service. Highly shareable to friends booking appointments.
+
+5. FORMAT: Story series
+HOOK: "We asked 10 clients what they actually think about. Here's what they said."
+CONCEPT: A series of client micro-interviews on Stories — one question, one answer per slide. Authentic, unfiltered, real voices.
+WHY IT WORKS: Social proof presented as content, not as a testimonial. Peer validation is more persuasive than brand claims.
+
+6. FORMAT: Reel (trending format)
+HOOK: Use a trending "get ready with me" audio
+CONCEPT: The nail tech's morning routine arriving at the studio, setting up, and doing the first set of the day. Ends on the finished result.
+WHY IT WORKS: GRWM content is consistently high-performing across beauty verticals. It humanises the brand and satisfies audience curiosity about what happens behind the scenes.`;
+  }
+
+  // ── CAPTIONS ──
+  if (p.includes("caption") || p.includes("copywriter")) {
+    return `CAPTION VERSION 1 — Conversational / Relatable
+"soft life era, starting with the nails ✨
+swipe to see what we did and try not to book immediately (no promises)
+→ link in bio to grab your spot"
+
+Strategic choice: Opens with a cultural reference ("soft life era") that this audience actively uses and identifies with. Low-pressure CTA that feels playful, not salesy. The "no promises" line adds personality.
+Hashtags: #softlife #nailsofinstagram #vancouvernails #gelmanicure #nailinspo #selfcare #nailartist
+
+---
+
+CAPTION VERSION 2 — Visual-forward / Minimal
+"this one's for the 'I just want something clean' girlies.
+booking link in bio 🤍"
+
+Strategic choice: Speaks directly to a specific audience type — clients who are often under-served by maximalist beauty content. Extremely short captions perform well on Instagram when the visual is strong. Creates instant identification.
+Hashtags: #cleannails #minimalistnails #nudenails #nailsoftheday #gelnails #vancouverbeauty #nailtech
+
+---
+
+CAPTION VERSION 3 — Story-driven / Brand voice
+"every set we do is a little different. same care, every time.
+booked through the link in bio — next availability this week 📍"
+
+Strategic choice: Highlights what differentiates a personal studio from a chain — customisation and consistency of care. "Same care, every time" is a subtle trust signal. The location tag and availability mention drive urgency without being pushy.
+Hashtags: #nailstudio #booknow #vancouverwomen #nailcare #manicure #beautyvancouver #nailsalon`;
+  }
+
+  // ── TREND INTEL ──
+  if (p.includes("trend") || p.includes("rising format") || p.includes("audience behaviour")) {
+    return `TREND REPORT — Beauty & Nail Industry / Instagram
+
+1. RISING FORMATS
+✦ "Silent Reel" aesthetic — High-quality visuals with no voiceover, minimal text, music-driven. Performing strongly in beauty because the craft speaks for itself. Audiences are responding to content that trusts them to watch without being narrated at.
+✦ Micro-documentary style — 60–90 second Reels that follow a process from start to finish with a subtle story arc. For nail studios: "one appointment, start to finish" format is gaining significant traction.
+✦ Text-on-screen dialogue — Short punchy text overlays that feel like internal monologue or conversation. "Me choosing a colour vs me 10 minutes later" type formats. Low production, high relatability.
+
+2. AUDIENCE BEHAVIOUR SHIFTS
+This audience is increasingly expecting brands to have a point of view, not just a product. They follow studios the same way they follow creators — for the personality and perspective, not just the portfolio. Content that only shows the finished nail is losing ground to content that shows the person, the process, and the values behind the work.
+
+3. CONTENT THEMES TO OWN
+◆ "The ritual" — Positioning a nail appointment as self-care ritual, not errand. Deeply resonant with this audience right now.
+◆ Local pride — Vancouver-specific content, local references, community shoutouts. Audiences are gravitating toward local over global.
+◆ The nail tech's perspective — Content from the artist's POV is underused and high-interest. What do you notice? What do you love about your work?
+
+4. THEMES TO AVOID
+✗ Generic "treat yourself" messaging — Oversaturated and feels hollow without specific context.
+✗ Price-focused content — Commoditises the service and attracts the wrong audience.
+✗ Overly polished, stock-feel visuals — Authenticity is outperforming production value right now.
+
+5. STRATEGIC OPPORTUNITY
+The "studio personality" content space is significantly underserved in local Vancouver beauty. Most studios post work; very few post who they are. A consistent, personality-driven content strategy — even just 2 posts per week — could establish Yvonne's Besties as the most recognisable local nail brand within 90 days.`;
+  }
+
+  // ── CONTENT CALENDAR ──
+  if (p.includes("content calendar") || p.includes("campaign strategy") || p.includes("weekly plan")) {
+    return `CAMPAIGN STRATEGY
+Overarching narrative: "Your nails, your ritual" — a 4-week campaign that positions booking with Yvonne's Besties as an act of intentional self-investment, not just a beauty appointment. Each week builds on the last, moving the audience from awareness → consideration → desire → action.
+
+CONTENT MIX
+40% Inspirational (portfolio + aesthetic) — builds desire and brand recognition
+30% Educational (tips, process, expertise) — builds trust and saves
+20% Personal/Behind-the-scenes — builds connection and loyalty
+10% Promotional (direct CTAs, availability) — drives bookings
+Reasoning: This audience books based on trust and aspiration combined. Too much promotion creates resistance; too little loses conversion opportunities.
+
+WEEKLY PLAN
+
+WEEK 1 — "Meet the Studio"
+Theme: Introduce the brand personality and space
+Post 1 (Reel): Studio morning routine — arriving, setting up, first client of the day. Purpose: humanise the brand.
+Post 2 (Carousel): "5 things that make our studio different" — specific, genuine, not generic. Purpose: differentiation.
+Post 3 (Static): A beautifully shot flat-lay of nail tools + finished set. Purpose: aesthetic credibility.
+
+WEEK 2 — "The Craft"
+Theme: Demonstrate expertise without bragging
+Post 1 (Reel): Time-lapse of a full set from bare nails to finish. Purpose: showcase skill, satisfy process curiosity.
+Post 2 (Carousel): "How to make your gel set last 3+ weeks" — client education. Purpose: saves + shares.
+Post 3 (Static): Close-up detail shot of intricate nail art. Purpose: aspirational portfolio content.
+
+WEEK 3 — "The Community"
+Theme: Social proof and client love
+Post 1 (Reel): Client reaction video — genuine, unscripted. Purpose: peer validation.
+Post 2 (Carousel): "Client spotlight" — one regular client, their go-to look, why they keep coming back. Purpose: storytelling + loyalty signal.
+Post 3 (Story series): "We asked clients one question..." — micro-interviews. Purpose: authentic social proof.
+
+WEEK 4 — "Book Your Ritual"
+Theme: Conversion week — soft urgency, strong CTA
+Post 1 (Reel): "Your sign to book your next set" — trending audio, beautiful visuals. Purpose: desire + action.
+Post 2 (Carousel): Seasonal nail inspo lookbook with booking CTA on final slide. Purpose: inspiration → conversion.
+Post 3 (Static): Limited availability announcement for the month. Purpose: urgency without pressure.
+
+KEY MOMENTS
+✦ Any local Vancouver events or holidays in the campaign window
+✦ Friday posts for weekend booking intent
+✦ Tuesday/Wednesday for educational content (higher save rates mid-week)
+
+CAMPAIGN KPIs
+Primary: Booking link clicks, DM enquiries
+Secondary: Reel plays, carousel reach, saves-to-reach ratio
+Watch closely: Profile visits after each post (signals purchase intent)`;
+  }
+
+  // ── PERFORMANCE ANALYZER ──
+  if (p.includes("performance") || p.includes("diagnos") || p.includes("root cause") || p.includes("what's working")) {
+    return `PERFORMANCE READING
+A reach of 2,400 with 48 likes represents a 2% like rate — below the Instagram average of 3–5% for beauty content. More telling: 12 saves is actually a positive signal (0.5% save rate is solid for educational content), but 0 follows from the post suggests the content isn't converting new audiences. This looks like existing-audience content that didn't compel action from new viewers.
+
+WHAT'S WORKING
+✦ The save count (12) indicates the content has utility — people found it worth returning to. This is a high-quality signal even if the vanity metrics look underwhelming.
+✦ The reach itself (2,400) suggests the algorithm distributed it reasonably — the content wasn't suppressed.
+
+ROOT CAUSE ANALYSIS
+The gap between reach and follows (2,400 reach, 0 follows) points to a hook or profile problem, not a content problem. New viewers arrived, saw the content, but didn't feel compelled to follow. This usually means one of two things: the hook didn't earn their attention fast enough, or the profile they landed on didn't immediately communicate why they should stay.
+
+CONTENT DIAGNOSIS
+The Reel format is right for this goal, but posting on a Tuesday at 6pm may have limited initial distribution — this audience is typically most active Thursday–Saturday evenings. More critically, "showing a collection" is passive. The content tells viewers what exists but doesn't give them a reason to act or a feeling to hold onto.
+
+IMMEDIATE ACTIONS
+1. Repost the same content with a stronger hook line in the caption — test "the set that kept getting asked about 👇" vs the original
+2. Check your profile bio — a new visitor should understand who you are and feel something within 3 seconds
+3. Add a pinned comment on the post with a direct CTA: "Booking open for [month] — link in bio"
+
+STRATEGIC RECOMMENDATIONS
+Shift from collection-showcase posts to client-story posts. "Here's what [client type] booked and why" outperforms "here's our new collection" because it helps potential clients see themselves in the content. Also consider posting the next Reel on a Thursday evening (7–9pm) and compare performance.
+
+WHAT TO TRACK NEXT (30 days)
+→ Profile visits per post (target: 5%+ of reach)
+→ Bio link clicks (target: 1–2% of reach)
+→ Save rate (maintain above 0.4%)
+→ Follower growth rate week-over-week`;
+  }
+
+  // DEFAULT
+  return `Aura Studio is ready to help with your marketing strategy. Please fill in the form fields above and click Generate to get your analysis.`;
+}
+
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
+
+function GlassCard({children, style={}, glow}) {
+  return (
+    <div style={{
+      background:"rgba(255,255,255,0.05)",
+      border:"1px solid rgba(255,255,255,0.1)",
+      borderRadius:20,
+      backdropFilter:"blur(20px)",
+      padding:28,
+      position:"relative",
+      overflow:"hidden",
+      ...style
+    }}>
+      {glow && <div style={{position:"absolute",top:-60,right:-60,width:200,height:200,background:`radial-gradient(circle,${glow}22,transparent 70%)`,pointerEvents:"none"}}/>}
+      {children}
+    </div>
+  );
+}
+
+function RainbowBtn({children, onClick, loading, outline, style={}}) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      onMouseEnter={()=>setHov(true)}
+      onMouseLeave={()=>setHov(false)}
+      style={{
+        padding:"12px 28px",borderRadius:12,fontSize:13,fontWeight:600,
+        cursor:loading?"wait":"pointer",border:"none",transition:"all 0.2s",
+        background:outline?"transparent":loading?"rgba(255,255,255,0.1)":RAINBOW,
+        backgroundSize:"200% 200%",
+        color:outline?"transparent":"#0f0d14",
+        border:outline?"2px solid transparent":"none",
+        backgroundClip:outline?"text, border-box":undefined,
+        WebkitBackgroundClip:outline?"text":"undefined",
+        boxShadow:(!outline&&!loading&&hov)?"0 0 32px rgba(200,120,255,0.4)":"none",
+        transform:hov&&!loading?"translateY(-1px)":"none",
+        opacity:loading?0.6:1,
+        display:"flex",alignItems:"center",gap:8,
+        ...style
+      }}>
+      {loading && <span style={{width:14,height:14,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin 0.7s linear infinite"}}/>}
+      {loading ? "Generating..." : children}
+    </button>
+  );
+}
+
+function Label({children}) {
+  return (
+    <p style={{
+      fontSize:11,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",
+      background:RAINBOW_90,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",
+      backgroundClip:"text",marginBottom:8
+    }}>{children}</p>
+  );
+}
+
+function PageTitle({label, title, sub}) {
+  return (
+    <div style={{marginBottom:32,animation:"fadeUp 0.5s ease both"}}>
+      <Label>{label}</Label>
+      <h2 style={{fontFamily:"'DM Serif Display',serif",fontSize:clamp(26,3.5,42),fontWeight:400,color:"#f0eaf8",marginBottom:sub?10:0,lineHeight:1.15}}>{title}</h2>
+      {sub && <p style={{fontSize:14,color:"rgba(240,234,248,0.5)",lineHeight:1.7,maxWidth:540}}>{sub}</p>}
+    </div>
+  );
+}
+
+function clamp(min,vw,max){return `clamp(${min}px,${vw}vw,${max}px)`;}
+
+function Field({label, value, onChange, placeholder, multi, type="text"}) {
+  const base={
+    width:"100%",padding:"11px 16px",borderRadius:12,
+    border:"1px solid rgba(255,255,255,0.1)",
+    fontSize:13,color:"#f0eaf8",
+    background:"rgba(255,255,255,0.04)",
+    outline:"none",resize:multi?"vertical":"none",
+    transition:"border-color 0.2s",lineHeight:1.6
+  };
+  return (
+    <div style={{marginBottom:16}}>
+      {label && <label style={{display:"block",fontSize:12,fontWeight:600,color:"rgba(240,234,248,0.6)",marginBottom:6}}>{label}</label>}
+      {multi
+        ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={3}
+            style={base} onFocus={e=>e.target.style.borderColor="rgba(200,120,255,0.4)"}
+            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.1)"}/>
+        : <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} type={type}
+            style={base} onFocus={e=>e.target.style.borderColor="rgba(200,120,255,0.4)"}
+            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.1)"}/>
+      }
+    </div>
+  );
+}
+
+function Select({label, value, onChange, options}) {
+  return (
+    <div style={{marginBottom:16}}>
+      {label && <label style={{display:"block",fontSize:12,fontWeight:600,color:"rgba(240,234,248,0.6)",marginBottom:6}}>{label}</label>}
+      <select value={value} onChange={e=>onChange(e.target.value)} style={{
+        width:"100%",padding:"11px 16px",borderRadius:12,
+        border:"1px solid rgba(255,255,255,0.1)",fontSize:13,
+        color:"#f0eaf8",background:"#1a1624",outline:"none"
+      }}>
+        {options.map(o=><option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function Result({text, color}) {
+  if (!text) return null;
+  return (
+    <div style={{animation:"fadeUp 0.5s ease both",marginTop:24}}>
+      <div style={{height:1,background:RAINBOW_90,marginBottom:24,opacity:0.3}}/>
+      <Label>Analysis</Label>
+      <div style={{
+        background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
+        borderRadius:16,padding:24,
+        borderLeft:`3px solid ${color||"#cc5de8"}`
+      }}>
+        <pre style={{
+          fontFamily:"'Inter',sans-serif",fontSize:13,
+          color:"rgba(240,234,248,0.85)",lineHeight:1.9,
+          whiteSpace:"pre-wrap",wordBreak:"break-word"
+        }}>{text}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ── HOME ──────────────────────────────────────────────────────────────────────
+function Home({setPage}) {
+  const h = new Date().getHours();
+  const greet = h<12?"Good morning":h<17?"Good afternoon":"Good evening";
+
+  return (
+    <div style={{animation:"fadeUp 0.5s ease both"}}>
+      {/* Hero */}
+      <div style={{marginBottom:48,position:"relative"}}>
+        <div style={{position:"absolute",top:-80,right:-40,width:320,height:320,background:"radial-gradient(circle,rgba(204,93,232,0.15),transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:-40,left:-60,width:240,height:240,background:"radial-gradient(circle,rgba(77,171,247,0.1),transparent 70%)",pointerEvents:"none"}}/>
+        <p style={{fontSize:13,color:"rgba(240,234,248,0.4)",marginBottom:12,fontWeight:500}}>{greet}</p>
+        <h1 style={{fontFamily:"'DM Serif Display',serif",fontSize:"clamp(38px,5vw,64px)",fontWeight:400,lineHeight:1.05,marginBottom:16}}>
+          <span style={{color:"#f0eaf8"}}>Your marketing</span><br/>
+          <span style={{background:RAINBOW,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text",fontStyle:"italic"}}>intelligence workspace.</span>
+        </h1>
+        <p style={{fontSize:15,color:"rgba(240,234,248,0.45)",maxWidth:480,lineHeight:1.75}}>
+          Five tools. One loop. Brand positioning to performance review — everything a modern marketer needs to think, create, and improve.
+        </p>
+      </div>
+
+      {/* Module grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14,marginBottom:32}}>
+        {NAV.filter(n=>n.id!=="home").map((n,i)=>(
+          <div key={n.id} onClick={()=>setPage(n.id)}
+            style={{
+              background:"rgba(255,255,255,0.03)",border:`1px solid ${n.color}28`,
+              borderRadius:18,padding:24,cursor:"pointer",
+              transition:"all 0.2s",position:"relative",overflow:"hidden",
+              animation:`fadeUp 0.5s ease ${i*0.07}s both`
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${n.color}12`;e.currentTarget.style.borderColor=`${n.color}55`;e.currentTarget.style.transform="translateY(-3px)";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.03)";e.currentTarget.style.borderColor=`${n.color}28`;e.currentTarget.style.transform="none";}}
+          >
+            <div style={{position:"absolute",top:-30,right:-30,width:100,height:100,background:`radial-gradient(circle,${n.color}18,transparent 70%)`}}/>
+            <div style={{width:42,height:42,borderRadius:12,background:`${n.color}18`,border:`1px solid ${n.color}35`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:n.color,marginBottom:14}}>
+              {n.icon}
+            </div>
+            <p style={{fontSize:14,fontWeight:700,color:"#f0eaf8",marginBottom:6}}>{n.label}</p>
+            <p style={{fontSize:12,color:"rgba(240,234,248,0.4)",lineHeight:1.6,marginBottom:14}}>
+              {n.id==="brand"&&"Define who you are, who you're for, and why you matter."}
+              {n.id==="content"&&"Generate ideas and captions with strategic intent."}
+              {n.id==="trends"&&"Spot what's rising before your competitors do."}
+              {n.id==="calendar"&&"Plan campaigns that build — not just fill the feed."}
+              {n.id==="performance"&&"Turn your data into decisions."}
+            </p>
+            <p style={{fontSize:12,fontWeight:600,color:n.color}}>Open →</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Loop */}
+      <GlassCard style={{background:"rgba(255,255,255,0.02)"}}>
+        <Label>The Marketing Loop</Label>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          {[
+            {t:"Brand",c:"#ffa94d"},{t:"→",c:"rgba(240,234,248,0.2)"},
+            {t:"Content",c:"#ffe066"},{t:"→",c:"rgba(240,234,248,0.2)"},
+            {t:"Trends",c:"#69db7c"},{t:"→",c:"rgba(240,234,248,0.2)"},
+            {t:"Calendar",c:"#4dabf7"},{t:"→",c:"rgba(240,234,248,0.2)"},
+            {t:"Performance",c:"#cc5de8"}
+          ].map((s,i)=>(
+            <span key={i} style={{fontSize:13,fontWeight:s.t==="→"?300:700,color:s.c}}>{s.t}</span>
+          ))}
+        </div>
+        <p style={{fontSize:12,color:"rgba(240,234,248,0.35)",lineHeight:1.7}}>Good marketing doesn't skip steps. Each module maps to one stage of this loop.</p>
+      </GlassCard>
+    </div>
+  );
+}
+
+// ── BRAND COMPASS ─────────────────────────────────────────────────────────────
+function BrandCompass() {
+  const [f,setF] = useState({brand:"",product:"",audience:"",competitors:"",adjectives:""});
+  const [loading,setLoading] = useState(false);
+  const [result,setResult] = useState("");
+  const u = k => v => setF(p=>({...p,[k]:v}));
+
+  async function run() {
+    if(!f.brand||!f.audience) return;
+    setLoading(true);setResult("");
+    const r = await callClaude(`Brand Compass request.
+Brand: ${f.brand}
+Product: ${f.product}
+Audience: ${f.audience}
+Competitors: ${f.competitors}
+Adjectives: ${f.adjectives}`);
+    setResult(r);setLoading(false);
+  }
+
+  return (
+    <div style={{animation:"fadeUp 0.4s ease both"}}>
+      <PageTitle label="Brand Compass" title="Define Your Positioning" sub="Before you create content, you need to know who you are, who you're for, and why you matter."/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+        <GlassCard glow="#ffa94d">
+          <Field label="Brand / Business Name *" value={f.brand} onChange={u("brand")} placeholder="e.g. Yvonne's Besties"/>
+          <Field label="Product or Service *" value={f.product} onChange={u("product")} placeholder="e.g. Nail salon in Vancouver"/>
+          <Field label="Target Audience *" value={f.audience} onChange={u("audience")} placeholder="e.g. Women 20–35, beauty-conscious" multi/>
+          <Field label="Key Competitors" value={f.competitors} onChange={u("competitors")} placeholder="e.g. Other local nail studios"/>
+          <Field label="3–5 Brand Adjectives" value={f.adjectives} onChange={u("adjectives")} placeholder="e.g. playful, elevated, warm"/>
+          <RainbowBtn onClick={run} loading={loading}>Generate Brand Compass</RainbowBtn>
+        </GlassCard>
+        <GlassCard style={{background:"rgba(255,169,77,0.04)",border:"1px solid rgba(255,169,77,0.12)"}}>
+          <Label>What you'll get</Label>
+          {["Positioning Statement","Target Audience Profile","Brand Personality","Tone of Voice","Key Differentiator","Content Pillars"].map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:i<5?"1px solid rgba(255,255,255,0.05)":"none"}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:RB[i],flexShrink:0}}/>
+              <span style={{fontSize:13,color:"rgba(240,234,248,0.65)"}}>{s}</span>
+            </div>
+          ))}
+        </GlassCard>
+      </div>
+      <Result text={result} color="#ffa94d"/>
+    </div>
+  );
+}
+
+// ── CONTENT STUDIO ────────────────────────────────────────────────────────────
+function ContentStudio() {
+  const [tab,setTab] = useState("ideas");
+  const [f,setF] = useState({brand:"",platform:"Instagram",audience:"",goal:"",tone:"Relatable",topic:""});
+  const [loading,setLoading] = useState(false);
+  const [result,setResult] = useState("");
+  const u = k => v => setF(p=>({...p,[k]:v}));
+
+  async function run() {
+    setLoading(true);setResult("");
+    const prompt = tab==="ideas"
+      ? `Content ideas request. Brand:${f.brand} Platform:${f.platform} Audience:${f.audience} Goal:${f.goal} Tone:${f.tone}`
+      : `Caption writing request. Brand:${f.brand} Platform:${f.platform} Topic:${f.topic} Audience:${f.audience} Tone:${f.tone} Goal:${f.goal}`;
+    const r = await callClaude(prompt);
+    setResult(r);setLoading(false);
+  }
+
+  return (
+    <div style={{animation:"fadeUp 0.4s ease both"}}>
+      <PageTitle label="Content Studio" title="Create With Strategy" sub="Good content isn't just creative — it's purposeful. Every piece should serve the brand and speak to the audience."/>
+      <div style={{display:"flex",gap:8,marginBottom:24}}>
+        {[{id:"ideas",label:"Content Ideas"},{id:"captions",label:"Caption Writer"}].map(t=>(
+          <button key={t.id} onClick={()=>{setTab(t.id);setResult("");}} style={{
+            padding:"9px 22px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+            border:tab===t.id?"none":"1px solid rgba(255,255,255,0.1)",
+            background:tab===t.id?RAINBOW:"transparent",
+            color:tab===t.id?"#0f0d14":"rgba(240,234,248,0.5)",transition:"all 0.2s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+      <GlassCard glow="#ffe066">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <Field label="Brand / Business" value={f.brand} onChange={u("brand")} placeholder="e.g. Yvonne's Besties"/>
+          <Field label="Target Audience" value={f.audience} onChange={u("audience")} placeholder="e.g. Women 20–35"/>
+          <Select label="Platform" value={f.platform} onChange={u("platform")} options={["Instagram","TikTok","LinkedIn","YouTube Shorts","小红书 Rednote"]}/>
+          <Select label="Tone" value={f.tone} onChange={u("tone")} options={["Relatable","Inspiring","Educational","Witty","Professional","Conversational"]}/>
+        </div>
+        <Select label="Campaign Goal" value={f.goal} onChange={u("goal")} options={["Select a goal...","Build brand awareness","Drive engagement","Generate leads","Educate audience","Promote a product","Build community"]}/>
+        {tab==="captions" && <Field label="Post Topic / Concept" value={f.topic} onChange={u("topic")} placeholder="e.g. Launching our new gel manicure collection" multi/>}
+        <RainbowBtn onClick={run} loading={loading}>{tab==="ideas"?"Generate Content Ideas":"Write Captions"}</RainbowBtn>
+      </GlassCard>
+      <Result text={result} color="#ffe066"/>
+    </div>
+  );
+}
+
+// ── TREND INTEL ───────────────────────────────────────────────────────────────
+function TrendIntel() {
+  const [f,setF] = useState({industry:"",platform:"Instagram",audience:""});
+  const [loading,setLoading] = useState(false);
+  const [result,setResult] = useState("");
+  const u = k => v => setF(p=>({...p,[k]:v}));
+
+  async function run() {
+    if(!f.industry) return;
+    setLoading(true);setResult("");
+    const r = await callClaude(`Trend analysis request. Industry:${f.industry} Platform:${f.platform} Audience:${f.audience}`);
+    setResult(r);setLoading(false);
+  }
+
+  return (
+    <div style={{animation:"fadeUp 0.4s ease both"}}>
+      <PageTitle label="Trend Intel" title="Know Before Everyone Else" sub="Trend awareness isn't about chasing virality — it's about understanding where attention is moving."/>
+      <GlassCard glow="#69db7c">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <Field label="Industry / Niche *" value={f.industry} onChange={u("industry")} placeholder="e.g. Nail salon and beauty, Vancouver"/>
+          <Field label="Target Audience" value={f.audience} onChange={u("audience")} placeholder="e.g. Women 20–35"/>
+        </div>
+        <Select label="Platform" value={f.platform} onChange={u("platform")} options={["Instagram","TikTok","LinkedIn","YouTube","小红书 Rednote"]}/>
+        <RainbowBtn onClick={run} loading={loading}>Analyse Trends</RainbowBtn>
+      </GlassCard>
+      <Result text={result} color="#69db7c"/>
+    </div>
+  );
+}
+
+// ── CONTENT CALENDAR ──────────────────────────────────────────────────────────
+function ContentCalendar() {
+  const [f,setF] = useState({brand:"",goal:"",duration:"4 weeks",platform:"Instagram",audience:""});
+  const [loading,setLoading] = useState(false);
+  const [result,setResult] = useState("");
+  const u = k => v => setF(p=>({...p,[k]:v}));
+
+  async function run() {
+    if(!f.brand||!f.goal) return;
+    setLoading(true);setResult("");
+    const r = await callClaude(`Content calendar request. Brand:${f.brand} Goal:${f.goal} Duration:${f.duration} Platform:${f.platform} Audience:${f.audience}`);
+    setResult(r);setLoading(false);
+  }
+
+  return (
+    <div style={{animation:"fadeUp 0.4s ease both"}}>
+      <PageTitle label="Content Calendar" title="Plan With Intent" sub="A content calendar isn't just a schedule — it's a campaign. Every post should ladder up to a goal."/>
+      <GlassCard glow="#4dabf7">
+        <Field label="Brand / Business *" value={f.brand} onChange={u("brand")} placeholder="e.g. Yvonne's Besties"/>
+        <Field label="Campaign Goal *" value={f.goal} onChange={u("goal")} placeholder="e.g. Build brand awareness and drive bookings for summer" multi/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <Select label="Duration" value={f.duration} onChange={u("duration")} options={["2 weeks","4 weeks","6 weeks","8 weeks","3 months"]}/>
+          <Select label="Platform" value={f.platform} onChange={u("platform")} options={["Instagram","TikTok","LinkedIn","Multi-platform"]}/>
+        </div>
+        <Field label="Target Audience" value={f.audience} onChange={u("audience")} placeholder="e.g. Women 20–35 in Vancouver who love beauty"/>
+        <RainbowBtn onClick={run} loading={loading}>Build Content Calendar</RainbowBtn>
+      </GlassCard>
+      <Result text={result} color="#4dabf7"/>
+    </div>
+  );
+}
+
+// ── PERFORMANCE ANALYZER ──────────────────────────────────────────────────────
+function PerformanceAnalyzer() {
+  const [f,setF] = useState({platform:"Instagram",metric:"",context:"",goal:""});
+  const [loading,setLoading] = useState(false);
+  const [result,setResult] = useState("");
+  const u = k => v => setF(p=>({...p,[k]:v}));
+
+  async function run() {
+    if(!f.metric||!f.context) return;
+    setLoading(true);setResult("");
+    const r = await callClaude(`Performance analysis request. Platform:${f.platform} Data:${f.metric} Context:${f.context} Goal:${f.goal}`);
+    setResult(r);setLoading(false);
+  }
+
+  return (
+    <div style={{animation:"fadeUp 0.4s ease both"}}>
+      <PageTitle label="Performance Analyzer" title="Diagnose. Learn. Improve." sub="Data without interpretation is just numbers. Understand what your metrics are actually telling you."/>
+      <GlassCard glow="#cc5de8">
+        <Select label="Platform" value={f.platform} onChange={u("platform")} options={["Instagram","TikTok","LinkedIn","YouTube","小红书 Rednote","Multi-platform"]}/>
+        <Field label="Performance Data *" value={f.metric} onChange={u("metric")} placeholder="e.g. Reach 2,400 / Likes 48 / Saves 12 / Comments 3" multi/>
+        <Field label="What was this content? *" value={f.context} onChange={u("context")} placeholder="e.g. A Reel showing our new gel manicure collection, posted Tuesday 6pm" multi/>
+        <Field label="Original Goal" value={f.goal} onChange={u("goal")} placeholder="e.g. Drive bookings and grow follower count"/>
+        <RainbowBtn onClick={run} loading={loading}>Analyse Performance</RainbowBtn>
+      </GlassCard>
+      <Result text={result} color="#cc5de8"/>
+    </div>
+  );
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [page,setPage] = useState("home");
+  const [collapsed,setCollapsed] = useState(false);
+
+  const pages = {
+    home:<Home setPage={setPage}/>,
+    brand:<BrandCompass/>,
+    content:<ContentStudio/>,
+    trends:<TrendIntel/>,
+    calendar:<ContentCalendar/>,
+    performance:<PerformanceAnalyzer/>,
+  };
+
+  return (
+    <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+
+      {/* SIDEBAR */}
+      <div style={{
+        width:collapsed?68:230,flexShrink:0,
+        background:"rgba(10,8,30,0.55)",
+        borderRight:"1px solid rgba(255,255,255,0.06)",
+        display:"flex",flexDirection:"column",
+        transition:"width 0.25s cubic-bezier(.4,0,.2,1)",
+        overflow:"hidden",position:"relative",
+        backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)"
+      }}>
+        {/* Rainbow top line */}
+        <div style={{height:2,background:RAINBOW_90,flexShrink:0}}/>
+
+        {/* Logo */}
+        <div style={{padding:collapsed?"16px 14px":"20px 18px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+          <div style={{
+            width:34,height:34,borderRadius:10,flexShrink:0,
+            background:RAINBOW,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:15,fontWeight:800,color:"#0f0d14",fontFamily:"'DM Serif Display',serif",fontStyle:"italic"
+          }}>A</div>
+          {!collapsed && <div>
+            <p style={{fontSize:15,fontWeight:700,color:"#f0eaf8",fontFamily:"'DM Serif Display',serif",fontStyle:"italic",lineHeight:1}}>Aura</p>
+            <p style={{fontSize:10,color:"rgba(240,234,248,0.35)",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Studio</p>
+          </div>}
+        </div>
+
+        {/* Nav items */}
+        <nav style={{flex:1,padding:"14px 10px",overflowY:"auto"}}>
+          {NAV.map(n=>{
+            const active = page===n.id;
+            return (
+              <button key={n.id} onClick={()=>setPage(n.id)} title={n.label} style={{
+                width:"100%",display:"flex",alignItems:"center",gap:10,
+                padding:collapsed?"12px":"10px 12px",borderRadius:12,
+                background:active?`${n.color}15`:"transparent",
+                border:active?`1px solid ${n.color}35`:"1px solid transparent",
+                color:active?n.color:"rgba(240,234,248,0.4)",cursor:"pointer",
+                textAlign:"left",fontSize:13,fontWeight:active?600:400,
+                marginBottom:3,transition:"all 0.15s",
+                justifyContent:collapsed?"center":"flex-start"
+              }}>
+                <span style={{fontSize:16,flexShrink:0,color:n.color}}>{n.icon}</span>
+                {!collapsed && <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Collapse toggle */}
+        <button onClick={()=>setCollapsed(c=>!c)} style={{
+          margin:"10px",padding:"10px",borderRadius:10,
+          border:"1px solid rgba(255,255,255,0.07)",
+          background:"rgba(255,255,255,0.03)",
+          color:"rgba(240,234,248,0.3)",cursor:"pointer",fontSize:12,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          transition:"all 0.15s",flexShrink:0
+        }}
+          onMouseEnter={e=>{e.currentTarget.style.color="rgba(240,234,248,0.7)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="rgba(240,234,248,0.3)";}}
+        >
+          {collapsed?"›":"‹"}
+        </button>
+      </div>
+
+      {/* MAIN CONTENT */}
+      <main style={{flex:1,overflowY:"auto",padding:"44px 48px",background:"rgba(10,8,30,0.3)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)"}}>
+        <div style={{maxWidth:860,margin:"0 auto"}}>
+          {pages[page]}
+        </div>
+      </main>
+
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
